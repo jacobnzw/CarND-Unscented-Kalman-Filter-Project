@@ -54,6 +54,13 @@ UKF::UKF() {
 
   Hint: one or more values initialized above might be wildly off...
   */
+  is_initialized_ = false;
+
+  lambda_ = sqrt(3);
+  n_x_ = 5;
+  n_aug_ = 7;
+  weights_ = VectorXd::Ones(2*n_aug_) / (2*(n_aug_ + lambda_));
+  weights_[0] = lambda_ / (n_x_ + lambda_);
 }
 
 UKF::~UKF() {}
@@ -83,6 +90,30 @@ void UKF::Prediction(double delta_t) {
   Complete this function! Estimate the object's location. Modify the state
   vector, x_. Predict sigma points, the state, and the state covariance matrix.
   */
+
+  //predict sigma points
+  for (int i = 0; i <= 2*n_aug; ++i) {
+    double v = Xsig_aug(2, i);
+    double psi = Xsig_aug(3, i);
+    double psid = Xsig_aug(4, i);
+    double nu_a = Xsig_aug(5, i);
+    double nu_p = Xsig_aug(6, i);
+    if (psid != 0) {
+        Xsig_pred(0, i) = (v/psid) * (sin(psi + psid*delta_t) - sin(psi));
+        Xsig_pred(1, i) = (v/psid) * (-cos(psi + psid*delta_t) + cos(psi));
+    } else {
+        Xsig_pred(0, i) = v*delta_t*cos(psi);
+        Xsig_pred(1, i) = v*delta_t*sin(psi);
+    }
+    Xsig_pred(0, i) += 0.5*pow(delta_t, 2)*cos(psi)*nu_a;
+    Xsig_pred(1, i) += 0.5*pow(delta_t, 2)*sin(psi)*nu_a;
+    // predict the rest of the state vector
+    Xsig_pred(2, i) = delta_t*nu_a;
+    Xsig_pred(3, i) = psid*delta_t + 0.5*pow(delta_t, 2)*nu_p;
+    Xsig_pred(4, i) = delta_t*nu_p;
+
+    Xsig_pred.col(i) += Xsig_aug.col(i).head(5);
+  }
 }
 
 /**
