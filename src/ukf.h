@@ -28,8 +28,17 @@ public:
   ///* state covariance matrix
   MatrixXd P_;
 
+  // augmented state vector
+  VectorXd x_aug;
+
+  // augmented state covariance
+  MatrixXd P_aug;
+
   ///* predicted sigma points matrix
   MatrixXd Xsig_pred_;
+
+  // augmented state unit sigma-points
+  MatrixXd Xsig_aug_;
 
   ///* time when the state is true, in us
   long long time_us_;
