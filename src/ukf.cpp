@@ -1,6 +1,7 @@
 #include "ukf.h"
 #include "Eigen/Dense"
 #include <iostream>
+#include <cmath>
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -164,23 +165,23 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   You'll also need to calculate the radar NIS.
   */
   VectorXd mz = VectorXd(3U);
-    // compute predicted measurement and safeguard against division by zero
-    double norm = sqrt(pow(x_[0], 2) + pow(x_[1], 2)) + DBL_EPSILON;
-    mz << norm,
-          atan2(x_[1], x_[0]),
-          (x_[0]*x_[2] + x_[1]*x_[3])/norm;
+  // compute predicted measurement and safeguard against division by zero
+  double norm = sqrt(pow(x_[0], 2) + pow(x_[1], 2)) + DBL_EPSILON;
+  mz << norm,
+        atan2(x_[1], x_[0]),
+        (x_[0]*x_[2] + x_[1]*x_[3])/norm;
 
-    VectorXd e = meas_package.raw_measurements_ - mz;
-    // keep difference in angles between -pi and pi
-    double temp = e[1] / (2*M_PI);
-    if (abs(temp) > 1) {
-        unsigned int pi_count = floor(temp);
-        e[1] -= 2*pi_count*M_PI;
-    }
-    MatrixXd Pz = H_*P_*H_.transpose() + R_;
-    MatrixXd Pzx = H_*P_;
-    MatrixXd K = Pz.ldlt().solve(Pzx).transpose();
-    x_ = x_ + K*e;
-    P_ = (I_ - K*H_)*P_;
+  VectorXd e = meas_package.raw_measurements_ - mz;
+  // keep difference in angles between -pi and pi
+  double temp = e[1] / (2*M_PI);
+  if (abs(temp) > 1) {
+      unsigned int pi_count = floor(temp);
+      e[1] -= 2*pi_count*M_PI;
+  }
+  MatrixXd Pz = H_*P_*H_.transpose() + R_;
+  MatrixXd Pzx = H_*P_;
+  MatrixXd K = Pz.ldlt().solve(Pzx).transpose();
+  x_ = x_ + K*e;
+  P_ = (I_ - K*H_)*P_;
 
 }
