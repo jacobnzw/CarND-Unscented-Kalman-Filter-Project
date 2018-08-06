@@ -103,10 +103,11 @@ void UKF::Prediction(double delta_t) {
   P_aug.topLeftCorner(n_x_, n_x_) = P_;
   
   // create augmented sigma-points
-  MatrixXd X = x_aug.rowwise().replicate(2*n_aug_ + 1) + P_aug*Xsig_aug_;
+  unsigned int num_points = 2*n_aug_ + 1;
+  MatrixXd X = x_aug.rowwise().replicate(num_points) + P_aug*Xsig_aug_;
   
   //predict sigma points
-  for (int i = 0; i <= 2*n_aug_; ++i) {
+  for (unsigned int i = 0; i < num_points; ++i) {
     // pull out state dimensions for convenience
     double v = X(2, i);
     double psi = X(3, i);
@@ -130,10 +131,18 @@ void UKF::Prediction(double delta_t) {
     Xsig_pred_(3, i) = psid*delta_t + 0.5*pow(delta_t, 2)*nu_p;
     Xsig_pred_(4, i) = delta_t*nu_p;
     //
-    Xsig_pred_.col(i) += X.col(i).head(5);
+    Xsig_pred_.col(i) += X.col(i).head(n_x_);
   }
 
-  // TODO: use predicted SPs to calculate predicted mean and covariance of the state
+  // predicted mean
+  x_ = Xsig_pred_ * weights_;
+
+  // predicted covariance
+  MatrixXd df = Xsig_pred_ - x_.rowwise().replicate(num_points);
+  for (unsigned int i = 0; i < num_points; ++i) 
+  {
+    P_ += weights_[i] * (df.col(i) * df.col(i).transpose());
+  }
 }
 
 /**
@@ -164,24 +173,25 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   You'll also need to calculate the radar NIS.
   */
-  VectorXd mz = VectorXd(3U);
-  // compute predicted measurement and safeguard against division by zero
-  double norm = sqrt(pow(x_[0], 2) + pow(x_[1], 2)) + DBL_EPSILON;
-  mz << norm,
-        atan2(x_[1], x_[0]),
-        (x_[0]*x_[2] + x_[1]*x_[3])/norm;
 
-  VectorXd e = meas_package.raw_measurements_ - mz;
-  // keep difference in angles between -pi and pi
-  double temp = e[1] / (2*M_PI);
-  if (abs(temp) > 1) {
-      unsigned int pi_count = floor(temp);
-      e[1] -= 2*pi_count*M_PI;
-  }
-  MatrixXd Pz = H_*P_*H_.transpose() + R_;
-  MatrixXd Pzx = H_*P_;
-  MatrixXd K = Pz.ldlt().solve(Pzx).transpose();
-  x_ = x_ + K*e;
-  P_ = (I_ - K*H_)*P_;
+  // VectorXd mz = VectorXd(3U);
+  // // compute predicted measurement and safeguard against division by zero
+  // double norm = sqrt(pow(x_[0], 2) + pow(x_[1], 2)) + DBL_EPSILON;
+  // mz << norm,
+  //       atan2(x_[1], x_[0]),
+  //       (x_[0]*x_[2] + x_[1]*x_[3])/norm;
+
+  // VectorXd e = meas_package.raw_measurements_ - mz;
+  // // keep difference in angles between -pi and pi
+  // double temp = e[1] / (2*M_PI);
+  // if (abs(temp) > 1) {
+  //     unsigned int pi_count = floor(temp);
+  //     e[1] -= 2*pi_count*M_PI;
+  // }
+  // MatrixXd Pz = H_*P_*H_.transpose() + R_;
+  // MatrixXd Pzx = H_*P_;
+  // MatrixXd K = Pz.ldlt().solve(Pzx).transpose();
+  // x_ = x_ + K*e;
+  // P_ = (I_ - K*H_)*P_;
 
 }
