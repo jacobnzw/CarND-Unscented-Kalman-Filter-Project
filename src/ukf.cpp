@@ -80,12 +80,74 @@ UKF::~UKF() {}
  * either radar or laser.
  */
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
-  /**
-  TODO:
+  if (!is_initialized_) {
+    // first measurement
+    if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+      /**
+      Convert radar from polar to cartesian coordinates and initialize state.
 
-  Complete this function! Make sure you switch between lidar and radar
-  measurements.
-  */
+      This seemingly ad-hocy conversion happens because we are initializing state with measurements.
+      Hence the need for inverse transform from polar (measurement space) to cartesian (state space).
+      */
+      double rho = meas_package.raw_measurements_[0];
+      double theta = meas_package.raw_measurements_[1];
+      x_[0] = rho * cos(theta);
+      x_[1] = rho * sin(theta);
+    }
+    else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
+      /**
+      Initialize state.
+      */
+      x_[0] = meas_package.raw_measurements_[0];
+      x_[1] = meas_package.raw_measurements_[1];
+    }
+    previous_timestamp_ = meas_package.timestamp_;
+    is_initialized_ = true;
+    return;
+  }
+
+  /*****************************************************************************
+   *  Prediction
+   ****************************************************************************/
+
+  /**
+   TODO:
+      * Update the state transition matrix F according to the new elapsed time.
+      - Time is measured in seconds.
+      * Update the process noise covariance matrix.
+      * Use noise_ax = 9 and noise_ay = 9 for your Q matrix.
+    */
+
+  double dt = (meas_package.timestamp_ - previous_timestamp_) / 1e6;
+  previous_timestamp_ = meas_package.timestamp_;
+
+  ekf_.F_ << 1, 0, dt, 0,
+              0, 1, 0, dt,
+              0, 0, 1, 0,
+              0, 0, 0, 1;
+  double noise_ax = 9;
+  double noise_ay = 9;
+  ekf_.Q_ << noise_ax*pow(dt, 4)/4, 0, noise_ax*pow(dt, 3)/2, 0,
+              0, noise_ay*pow(dt, 4)/4, 0, noise_ay*pow(dt, 3)/2,
+              noise_ax*pow(dt, 3)/2, 0, noise_ax*pow(dt, 2), 0,
+              0, noise_ay*pow(dt, 3)/2, 0, noise_ay*pow(dt, 2);
+  ekf_.Predict();
+
+  /*****************************************************************************
+   *  Update
+   ****************************************************************************/
+  if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+      // Radar updates
+      Tools tools;
+      ekf_.H_ = tools.CalculateJacobian(ekf_.x_);
+      ekf_.R_ = R_radar_;
+      ekf_.UpdateEKF(measurement_pack.raw_measurements_);
+  } else {
+      // Laser updates
+      ekf_.H_ = H_laser_;
+      ekf_.R_ = R_laser_;
+      ekf_.Update(measurement_pack.raw_measurements_);
+  }
 }
 
 /**
