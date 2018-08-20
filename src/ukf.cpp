@@ -2,6 +2,7 @@
 #include "Eigen/Dense"
 #include <iostream>
 #include <cmath>
+#include <cfloat>
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -27,7 +28,7 @@ UKF::UKF() {
 
   // weights for sigma-points in augmented state-space
   lambda_ = sqrt(3);
-  weights_ = VectorXd::Ones(2*n_aug_) / (2*(n_aug_ + lambda_));
+  weights_ = VectorXd::Ones(2*n_aug_ + 1) / (2*(n_aug_ + lambda_));
   weights_[0] = lambda_ / (n_aug_ + lambda_);
 
   // storage for predicted sigma-points
@@ -82,6 +83,7 @@ UKF::~UKF() {}
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   if (!is_initialized_) {
     // first measurement
+    cout << "initializing with ";
     if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
       /**
       Convert radar from polar to cartesian coordinates and initialize state.
@@ -93,6 +95,7 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
       double theta = meas_package.raw_measurements_[1];
       x_[0] = rho * cos(theta);
       x_[1] = rho * sin(theta);
+      cout << "radar" << endl;
     }
     else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
       /**
@@ -103,50 +106,30 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     }
     previous_timestamp_ = meas_package.timestamp_;
     is_initialized_ = true;
+    cout << "lidar" << endl;
     return;
   }
 
   /*****************************************************************************
    *  Prediction
    ****************************************************************************/
-
-  /**
-   TODO:
-      * Update the state transition matrix F according to the new elapsed time.
-      - Time is measured in seconds.
-      * Update the process noise covariance matrix.
-      * Use noise_ax = 9 and noise_ay = 9 for your Q matrix.
-    */
-
   double dt = (meas_package.timestamp_ - previous_timestamp_) / 1e6;
   previous_timestamp_ = meas_package.timestamp_;
 
-  ekf_.F_ << 1, 0, dt, 0,
-              0, 1, 0, dt,
-              0, 0, 1, 0,
-              0, 0, 0, 1;
-  double noise_ax = 9;
-  double noise_ay = 9;
-  ekf_.Q_ << noise_ax*pow(dt, 4)/4, 0, noise_ax*pow(dt, 3)/2, 0,
-              0, noise_ay*pow(dt, 4)/4, 0, noise_ay*pow(dt, 3)/2,
-              noise_ax*pow(dt, 3)/2, 0, noise_ax*pow(dt, 2), 0,
-              0, noise_ay*pow(dt, 3)/2, 0, noise_ay*pow(dt, 2);
-  ekf_.Predict();
+  cout << "Prediction" << endl;
+  Prediction(dt);
 
   /*****************************************************************************
    *  Update
    ****************************************************************************/
   if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
       // Radar updates
-      Tools tools;
-      ekf_.H_ = tools.CalculateJacobian(ekf_.x_);
-      ekf_.R_ = R_radar_;
-      ekf_.UpdateEKF(measurement_pack.raw_measurements_);
+      cout << "radar update" << endl;
+      UpdateRadar(meas_package);
   } else {
       // Laser updates
-      ekf_.H_ = H_laser_;
-      ekf_.R_ = R_laser_;
-      ekf_.Update(measurement_pack.raw_measurements_);
+      cout << "lidar update" << endl;
+      UpdateLidar(meas_package);
   }
 }
 
@@ -205,6 +188,7 @@ void UKF::Prediction(double delta_t) {
   {
     P_ += weights_[i] * (df.col(i) * df.col(i).transpose());
   }
+  // TODO: add process covaraince!
 }
 
 /**
@@ -213,13 +197,30 @@ void UKF::Prediction(double delta_t) {
  */
 void UKF::UpdateLidar(MeasurementPackage meas_package) {
   /**
-  TODO:
-
-  Complete this function! Use lidar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
-
-  You'll also need to calculate the lidar NIS.
+    You'll also need to calculate the lidar NIS.
   */
+
+  // push sigma-points through the LIDAR measurement model
+  MatrixXd H = MatrixXd::Identity(2, n_x_);
+  MatrixXd Xsig_lidar = H * Xsig_pred_;
+
+  // compute measurement moments
+  VectorXd mz = Xsig_lidar * weights_;
+  MatrixXd Pz = MatrixXd::Zero(2, 2);
+  MatrixXd Pzx = MatrixXd::Zero(2, n_x_);
+  unsigned int num_points = 2*n_aug_ + 1;
+  MatrixXd dh = Xsig_lidar - mz.rowwise().replicate(num_points);
+  MatrixXd dx = Xsig_pred_ - x_.rowwise().replicate(num_points);
+  for (unsigned int i = 0; i < num_points; ++i) {
+     Pz += weights_(i) * (dh.col(i) * dh.col(i).transpose());
+     Pzx += weights_(i) * (dh.col(i) * dx.col(i).transpose());
+  }
+
+  // measurement update
+  MatrixXd K = Pz.ldlt().solve(Pzx).transpose();
+  VectorXd dz = meas_package.raw_measurements_ - mz;
+  x_ = x_ + K * dz;
+  P_ = P_ - K * Pz * K.transpose();
 }
 
 /**
@@ -228,32 +229,40 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
  */
 void UKF::UpdateRadar(MeasurementPackage meas_package) {
   /**
-  TODO:
-
-  Complete this function! Use radar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
-
-  You'll also need to calculate the radar NIS.
+    You'll also need to calculate the radar NIS.
   */
 
-  // VectorXd mz = VectorXd(3U);
-  // // compute predicted measurement and safeguard against division by zero
-  // double norm = sqrt(pow(x_[0], 2) + pow(x_[1], 2)) + DBL_EPSILON;
-  // mz << norm,
-  //       atan2(x_[1], x_[0]),
-  //       (x_[0]*x_[2] + x_[1]*x_[3])/norm;
+  unsigned int num_points = 2*n_aug_ + 1;
+  // push sigma-points through RADAR measurement model
+  MatrixXd Xsig_radar = MatrixXd(3, num_points);
+  for (unsigned int i = 1; i < num_points; ++i) {
+    VectorXd x_i = Xsig_radar.col(i);
+    double norm = sqrt(pow(x_i[0], 2) + pow(x_i[1], 2)) + DBL_EPSILON;
+    // TODO: range rate needs to be computed differently, since state doesn't contain velocity!
+    Xsig_radar.col(i) << norm, atan2(x_i[1], x_i[0]), (x_i[0]*x_i[2] + x_i[1]*x_i[3])/norm;
+  }
 
-  // VectorXd e = meas_package.raw_measurements_ - mz;
-  // // keep difference in angles between -pi and pi
-  // double temp = e[1] / (2*M_PI);
-  // if (abs(temp) > 1) {
-  //     unsigned int pi_count = floor(temp);
-  //     e[1] -= 2*pi_count*M_PI;
-  // }
-  // MatrixXd Pz = H_*P_*H_.transpose() + R_;
-  // MatrixXd Pzx = H_*P_;
-  // MatrixXd K = Pz.ldlt().solve(Pzx).transpose();
-  // x_ = x_ + K*e;
-  // P_ = (I_ - K*H_)*P_;
+  // compute predicted measurement moments
+  MatrixXd Pz = MatrixXd::Zero(3, 3);
+  MatrixXd Pzx = MatrixXd::Zero(3, n_x_);
+  VectorXd mz = Xsig_radar * weights_;
+  MatrixXd dh = Xsig_radar - mz.rowwise().replicate(num_points);
+  MatrixXd dx = Xsig_pred_ - x_.rowwise().replicate(num_points);
+  for (unsigned int i = 1; i < num_points; ++i) {
+    Pz += weights_(i) * (dh * dh.transpose());
+    Pzx += weights_(i) * (dh * dx.transpose());
+  }
+  // TODO: add measurement covariance
 
+  // measurement update
+  VectorXd dz = meas_package.raw_measurements_ - mz;
+  // keep difference in angles between -pi and pi
+  double temp = dz[1] / (2*M_PI);
+  if (abs(temp) > 1) {
+      unsigned int pi_count = floor(temp);
+      dz[1] -= 2*pi_count*M_PI;
+  }
+  MatrixXd K = Pz.ldlt().solve(Pzx).transpose();
+  x_ = x_ + K * dz;
+  P_ = P_ - K * Pz * K.transpose();
 }
