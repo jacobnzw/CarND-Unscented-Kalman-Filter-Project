@@ -15,7 +15,7 @@ using std::vector;
  */
 UKF::UKF() {
   // if this is false, laser measurements will be ignored (except during init)
-  use_laser_ = true;
+  use_laser_ = false;
   // if this is false, radar measurements will be ignored (except during init)
   use_radar_ = true;
   // true if the filter was initialized with the first measurement
@@ -23,41 +23,43 @@ UKF::UKF() {
 
   // state dimension
   n_x_ = 5;
-  // augmented state dimension
-  n_aug_ = 7;
-
   // weights for sigma-points in augmented state-space
-  lambda_ = sqrt(3);
-  weights_aug_ = VectorXd::Ones(2*n_aug_ + 1) / (2*(n_aug_ + lambda_));
-  weights_aug_[0] = lambda_ / (n_aug_ + lambda_);
-  // weights for sigma-points in augmented state-space
-  lambda_ = sqrt(3);
+  lambda_ = max(3 - n_x_, 0);
   weights_ = VectorXd::Ones(2*n_x_ + 1) / (2*(n_x_ + lambda_));
   weights_[0] = lambda_ / (n_x_ + lambda_);
-
-  // define augmented unit sigma-points
-  Xsig_aug_ = MatrixXd(n_aug_, 2*n_aug_ + 1);
-  MatrixXd I = MatrixXd::Identity(n_aug_, n_aug_);
-  Xsig_aug_.col(0) = VectorXd::Zero(n_aug_);
-  Xsig_aug_.block(0, 1, n_aug_, n_aug_) = lambda_*I;
-  Xsig_aug_.block(0, n_aug_+1, n_aug_, n_aug_) = -lambda_*I;
   // define unit sigma-points
   Xsig_ = MatrixXd(n_x_, 2*n_x_ + 1);
-  I = MatrixXd::Identity(n_x_, n_x_);
+  MatrixXd I = MatrixXd::Identity(n_x_, n_x_);
   Xsig_.col(0) = VectorXd::Zero(n_x_);
-  Xsig_.block(0, 1, n_x_, n_x_) = lambda_*I;
-  Xsig_.block(0, n_x_+1, n_x_, n_x_) = -lambda_*I;
+  double c = sqrt(n_x_ + lambda_);
+  Xsig_.block(0, 1, n_x_, n_x_) = c*I;
+  Xsig_.block(0, n_x_+1, n_x_, n_x_) = -c*I;
+
+  // augmented state dimension
+  n_aug_ = 7;
+  // weights for sigma-points in augmented state-space
+  lambda_ = max(3 - n_aug_, 0);
+  weights_aug_ = VectorXd::Ones(2*n_aug_ + 1) / (2*(n_aug_ + lambda_));
+  weights_aug_[0] = lambda_ / (n_aug_ + lambda_);
+  // define augmented unit sigma-points
+  Xsig_aug_ = MatrixXd(n_aug_, 2*n_aug_ + 1);
+  I = MatrixXd::Identity(n_aug_, n_aug_);
+  Xsig_aug_.col(0) = VectorXd::Zero(n_aug_);
+  c = sqrt(n_aug_ + lambda_);
+  Xsig_aug_.block(0, 1, n_aug_, n_aug_) = c*I;
+  Xsig_aug_.block(0, n_aug_+1, n_aug_, n_aug_) = -c*I;
+  
 
   // initial state vector
   x_ = VectorXd::Zero(n_x_);
   // initial covariance matrix
-  P_ = 0.1 * MatrixXd::Identity(n_x_, n_x_);
+  P_ = MatrixXd::Identity(n_x_, n_x_);
 
   // TODO: set these values meaningfully! Use NIS plots to verify.
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = sqrt(1.0);
+  std_a_ = 3; // sqrt(1.0);
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = sqrt(0.1*M_PI);
+  std_yawdd_ = 0.2; // sqrt(0.5*M_PI);
 
   // augmented state mean
   x_aug_ = VectorXd::Zero(n_aug_);
@@ -129,20 +131,20 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   double dt = (meas_package.timestamp_ - previous_timestamp_) / 1e6;
   previous_timestamp_ = meas_package.timestamp_;
 
-  cout << "Prediction" << endl;
   Prediction(dt);
 
   /*****************************************************************************
    *  Update
    ****************************************************************************/
-  if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
-      // Radar updates
-      cout << "Radar update" << endl;
-      UpdateRadar(meas_package);
-  } else {
-      // Laser updates
-      cout << "Lidar update" << endl;
-      UpdateLidar(meas_package);
+  if (use_radar_ && meas_package.sensor_type_ == MeasurementPackage::RADAR) 
+  {
+    // Radar updates
+    UpdateRadar(meas_package);
+  } 
+  else if (use_laser_ && meas_package.sensor_type_ == MeasurementPackage::LASER) 
+  {
+    // Laser updates
+    UpdateLidar(meas_package);
   }
 }
 
@@ -198,12 +200,13 @@ void UKF::Prediction(double delta_t) {
   x_ = Xsig_pred_ * weights_aug_;
 
   // predicted covariance
+  // adding process covariance not necessary for non-additive case (already reflected in the transform)
   MatrixXd df = Xsig_pred_ - x_.rowwise().replicate(num_points);
   for (unsigned int i = 0; i < num_points; ++i)
   {
     P_ += weights_aug_[i] * (df.col(i) * df.col(i).transpose());
   }
-  // adding process covariance not necessary for non-additive case (already reflected in the transform)
+  
   // cout << "x_" << endl << x_ << endl;
   // cout << "P_" << endl << P_ << endl;  
 }
@@ -268,7 +271,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     double norm = sqrt(pow(x_i[0], 2) + pow(x_i[1], 2)) + DBL_EPSILON;
     Xsig_radar.col(i) << norm, atan2(x_i[1], x_i[0]), x_i[2]*(x_i[0]*cos(x_i[3]) + x_i[1]*sin(x_i[3]))/norm;
   }
-  
+
   // compute predicted measurement moments
   MatrixXd Pz = MatrixXd::Zero(3, 3);
   MatrixXd Pzx = MatrixXd::Zero(3, n_x_);
