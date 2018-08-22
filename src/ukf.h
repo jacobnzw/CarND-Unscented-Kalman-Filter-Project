@@ -29,16 +29,15 @@ public:
   MatrixXd P_;
 
   // augmented state vector
-  VectorXd x_aug;
+  VectorXd x_aug_;
 
   // augmented state covariance
-  MatrixXd P_aug;
-
-  ///* predicted sigma points matrix
-  MatrixXd Xsig_pred_;
+  MatrixXd P_aug_;
 
   // augmented state unit sigma-points
   MatrixXd Xsig_aug_;
+  // state unit sigma-points
+  MatrixXd Xsig_;
 
   //
   long long previous_timestamp_;
@@ -66,6 +65,14 @@ public:
   ///* Radar measurement noise standard deviation radius change in m/s
   double std_radrd_ ;
 
+  // Radar measurement covariance
+  MatrixXd R_radar_;
+  
+  // Lidar measurement covariance
+  MatrixXd R_lidar_;
+
+  ///* Weights of augmented sigma points
+  VectorXd weights_aug_;
   ///* Weights of sigma points
   VectorXd weights_;
 
