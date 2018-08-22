@@ -24,7 +24,7 @@ UKF::UKF() {
   // state dimension
   n_x_ = 5;
   // weights for sigma-points in augmented state-space
-  lambda_ = 3 - n_x_; //max(3 - n_x_, 0);
+  lambda_ = max(3 - n_x_, 0); // 3 - n_x_; //
   weights_ = VectorXd::Ones(2*n_x_ + 1) / (2*(n_x_ + lambda_));
   weights_[0] = lambda_ / (n_x_ + lambda_);
   // define unit sigma-points
@@ -38,7 +38,7 @@ UKF::UKF() {
   // augmented state dimension
   n_aug_ = 7;
   // weights for sigma-points in augmented state-space
-  lambda_ = 3 - n_aug_; //max(3 - n_aug_, 0);
+  lambda_ = max(3 - n_aug_, 0); // 3 - n_aug_; // 
   weights_aug_ = VectorXd::Ones(2*n_aug_ + 1) / (2*(n_aug_ + lambda_));
   weights_aug_[0] = lambda_ / (n_aug_ + lambda_);
   // define augmented unit sigma-points
@@ -282,8 +282,6 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   MatrixXd dh = Xsig_radar - mz.rowwise().replicate(num_points);
   MatrixXd dx = X - x_.rowwise().replicate(num_points);
 
-  cout << "Yaw = " << dx.row(3).maxCoeff() << endl;
-
   // TODO: normalize difference between angles to [-PI, PI]
   // if ((dx.array().row(3) > M_PI).any() || (dx.array().row(3) < -M_PI).any())
   // {
@@ -299,7 +297,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   //     }
   //   }
   // }
-  
+
   // compute predicted measurement moments
   for (unsigned int i = 0; i < num_points; ++i) 
   {
