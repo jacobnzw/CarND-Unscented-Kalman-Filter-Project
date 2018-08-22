@@ -15,7 +15,7 @@ using std::vector;
  */
 UKF::UKF() {
   // if this is false, laser measurements will be ignored (except during init)
-  use_laser_ = false;
+  use_laser_ = true;
   // if this is false, radar measurements will be ignored (except during init)
   use_radar_ = true;
   // true if the filter was initialized with the first measurement
@@ -24,7 +24,7 @@ UKF::UKF() {
   // state dimension
   n_x_ = 5;
   // weights for sigma-points in augmented state-space
-  lambda_ = max(3 - n_x_, 0);
+  lambda_ = 3 - n_x_; //max(3 - n_x_, 0);
   weights_ = VectorXd::Ones(2*n_x_ + 1) / (2*(n_x_ + lambda_));
   weights_[0] = lambda_ / (n_x_ + lambda_);
   // define unit sigma-points
@@ -38,7 +38,7 @@ UKF::UKF() {
   // augmented state dimension
   n_aug_ = 7;
   // weights for sigma-points in augmented state-space
-  lambda_ = max(3 - n_aug_, 0);
+  lambda_ = 3 - n_aug_; //max(3 - n_aug_, 0);
   weights_aug_ = VectorXd::Ones(2*n_aug_ + 1) / (2*(n_aug_ + lambda_));
   weights_aug_[0] = lambda_ / (n_aug_ + lambda_);
   // define augmented unit sigma-points
@@ -48,7 +48,6 @@ UKF::UKF() {
   c = sqrt(n_aug_ + lambda_);
   Xsig_aug_.block(0, 1, n_aug_, n_aug_) = c*I;
   Xsig_aug_.block(0, n_aug_+1, n_aug_, n_aug_) = -c*I;
-  
 
   // initial state vector
   x_ = VectorXd::Zero(n_x_);
@@ -201,7 +200,10 @@ void UKF::Prediction(double delta_t) {
 
   // predicted covariance
   // adding process covariance not necessary for non-additive case (already reflected in the transform)
+
   MatrixXd df = Xsig_pred_ - x_.rowwise().replicate(num_points);
+  // TODO: normalize difference between angles to [-PI, PI]
+  P_.fill(0.0);  // important so we don't add on top of the old values from previous time step
   for (unsigned int i = 0; i < num_points; ++i)
   {
     P_ += weights_aug_[i] * (df.col(i) * df.col(i).transpose());
@@ -266,19 +268,41 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   // compute sigma-points from unit sigma-points
   MatrixXd L = P_.llt().matrixL();
   MatrixXd X = x_.rowwise().replicate(num_points) + L*Xsig_;
-  for (unsigned int i = 0; i < num_points; ++i) {
+  for (unsigned int i = 0; i < num_points; ++i) 
+  {
     VectorXd x_i = X.col(i);
     double norm = sqrt(pow(x_i[0], 2) + pow(x_i[1], 2)) + DBL_EPSILON;
     Xsig_radar.col(i) << norm, atan2(x_i[1], x_i[0]), x_i[2]*(x_i[0]*cos(x_i[3]) + x_i[1]*sin(x_i[3]))/norm;
   }
 
-  // compute predicted measurement moments
+  // predicted measurement moments
   MatrixXd Pz = MatrixXd::Zero(3, 3);
   MatrixXd Pzx = MatrixXd::Zero(3, n_x_);
   VectorXd mz = Xsig_radar * weights_;
   MatrixXd dh = Xsig_radar - mz.rowwise().replicate(num_points);
   MatrixXd dx = X - x_.rowwise().replicate(num_points);
-  for (unsigned int i = 0; i < num_points; ++i) {
+
+  cout << "Yaw = " << dx.row(3).maxCoeff() << endl;
+
+  // TODO: normalize difference between angles to [-PI, PI]
+  // if ((dx.array().row(3) > M_PI).any() || (dx.array().row(3) < -M_PI).any())
+  // {
+  //   cout << "Yaw = " << dx.row(3).maxCoeff() << endl;
+  //   for (unsigned int i = 0; i < dx.cols(); ++i)
+  //   {
+  //     // if (dx.row(3)(i) > M_PI || dx.row(3)(i) < -M_PI)
+  //     double temp = dx.row(3)(i) / (2*M_PI);
+  //     if (abs(temp) > 1) 
+  //     {
+  //         unsigned int pi_count = floor(temp);
+  //         dx.row(3)(i) -= 2*pi_count*M_PI;
+  //     }
+  //   }
+  // }
+  
+  // compute predicted measurement moments
+  for (unsigned int i = 0; i < num_points; ++i) 
+  {
     Pz  += weights_(i) * (dh.col(i) * dh.col(i).transpose());
     Pzx += weights_(i) * (dh.col(i) * dx.col(i).transpose());
   }
@@ -289,7 +313,8 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   VectorXd dz = meas_package.raw_measurements_ - mz;
   // keep difference in angles between -pi and pi
   double temp = dz[1] / (2*M_PI);
-  if (abs(temp) > 1) {
+  if (abs(temp) > 1) 
+  {
       unsigned int pi_count = floor(temp);
       dz[1] -= 2*pi_count*M_PI;
   }
