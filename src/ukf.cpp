@@ -58,7 +58,7 @@ UKF::UKF() {
 
   // TODO: set these values meaningfully! Use NIS plots to verify.
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ =  3.5; // sqrt(0.0001); // 3;
+  std_a_ =  3.5/2; // sqrt(0.0001); // 3;
   // Process noise standard deviation yaw acceleration in rad/s^2
   std_yawdd_ = M_PI/4; // 0.2;
 
