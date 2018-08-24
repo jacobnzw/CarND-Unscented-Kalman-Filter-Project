@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cmath>
 #include <cfloat>
+#include <iomanip>
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -24,7 +25,7 @@ UKF::UKF() {
   // state dimension
   n_x_ = 5;
   // weights for sigma-points in augmented state-space
-  lambda_ = max(3 - n_x_, 0); // 3 - n_x_; //
+  lambda_ = max(3 - n_x_, 0); // 3 - n_x_;
   weights_ = VectorXd::Ones(2*n_x_ + 1) / (2*(n_x_ + lambda_));
   weights_[0] = lambda_ / (n_x_ + lambda_);
   // define unit sigma-points
@@ -38,7 +39,7 @@ UKF::UKF() {
   // augmented state dimension
   n_aug_ = 7;
   // weights for sigma-points in augmented state-space
-  lambda_ = max(3 - n_aug_, 0); // 3 - n_aug_; // 
+  lambda_ = max(3 - n_aug_, 0); // 3 - n_aug_;
   weights_aug_ = VectorXd::Ones(2*n_aug_ + 1) / (2*(n_aug_ + lambda_));
   weights_aug_[0] = lambda_ / (n_aug_ + lambda_);
   // define augmented unit sigma-points
@@ -56,9 +57,9 @@ UKF::UKF() {
 
   // TODO: set these values meaningfully! Use NIS plots to verify.
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 3; // sqrt(1.0);
+  std_a_ =  3.5; // sqrt(0.0001); // 3;
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 0.2; // sqrt(0.5*M_PI);
+  std_yawdd_ = M_PI/4; // 0.2;
 
   // augmented state mean
   x_aug_ = VectorXd::Zero(n_aug_);
@@ -89,6 +90,11 @@ UKF::UKF() {
   R_radar_(0, 0) = pow(std_radr_, 2);
   R_radar_(1, 1) = pow(std_radphi_, 2);
   R_radar_(2, 2) = pow(std_radrd_, 2);
+
+  radar_nis_count_ = 0;
+  lidar_nis_count_ = 0;
+  radar_total_ = 0;
+  lidar_total_ = 0;
 }
 
 UKF::~UKF() {}
@@ -111,6 +117,8 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
       double theta = meas_package.raw_measurements_[1];
       x_[0] = rho * cos(theta);
       x_[1] = rho * sin(theta);
+
+      radar_total_++;  // radar measurement counter
     }
     else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
       /**
@@ -118,9 +126,12 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
       */
       x_[0] = meas_package.raw_measurements_[0];
       x_[1] = meas_package.raw_measurements_[1];
+
+      lidar_total_++;  // lidar measurement counter
     }
     previous_timestamp_ = meas_package.timestamp_;
     is_initialized_ = true;
+    cout << "Percent of measurements greater than the chi^2 value (p=0.05)" << endl;
     return;
   }
 
@@ -144,6 +155,16 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   {
     // Laser updates
     UpdateLidar(meas_package);
+  }
+
+  // 5% of measurements should be above the threshold after processing the whole trajectory
+  // cout << "Percent of measurement above threshold:"
+  if ((lidar_total_ + radar_total_) % 20 == 0)
+  {
+    cout << "LIDAR: " << setprecision(2) 
+         << 100 * float(lidar_nis_count_) / lidar_total_ << " \t"
+         << "RADAR: " << setprecision(2) 
+         << 100 * float(radar_nis_count_) / radar_total_ << endl;
   }
 }
 
@@ -200,7 +221,6 @@ void UKF::Prediction(double delta_t) {
 
   // predicted covariance
   // adding process covariance not necessary for non-additive case (already reflected in the transform)
-
   MatrixXd df = Xsig_pred_ - x_.rowwise().replicate(num_points);
   // TODO: normalize difference between angles to [-PI, PI]
   P_.fill(0.0);  // important so we don't add on top of the old values from previous time step
@@ -242,11 +262,19 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   // add lidar measurement covariance
   Pz += R_lidar_;
 
-  // measurement update
-  MatrixXd K = Pz.llt().solve(Pzx).transpose();
+  // Cholesky factor for semi-definite matrices (because covariances are semi-definite)
+  Eigen::LDLT<MatrixXd> cholPz(Pz);
+  // Kalman gain
+  MatrixXd K = cholPz.solve(Pzx).transpose();
   VectorXd dz = meas_package.raw_measurements_ - mz;
+  // measurement update
   x_ = x_ + K * dz;
   P_ = P_ - K * Pz * K.transpose();
+
+  // NIS computation
+  lidar_total_++;  // lidar measuremnt counter
+  // if NIS higher than threshold, count it
+  if (dz.transpose() * (cholPz.solve(dz)) > NIS_LIDAR_) lidar_nis_count_++;
 
   // cout << "x_ " << endl << x_ << endl;
   // cout << "P_ " << endl << P_ << endl;
@@ -307,7 +335,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   // add radar measurement covariance
   Pz += R_radar_;
 
-  // measurement update
+  // innovation with normalization of angles
   VectorXd dz = meas_package.raw_measurements_ - mz;
   // keep difference in angles between -pi and pi
   double temp = dz[1] / (2*M_PI);
@@ -316,9 +344,27 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
       unsigned int pi_count = floor(temp);
       dz[1] -= 2*pi_count*M_PI;
   }
-  MatrixXd K = Pz.llt().solve(Pzx).transpose();
+  // Cholesky factor for semi-definite matrices (because covariances are semi-definite)
+  Eigen::LDLT<MatrixXd> cholPz(Pz);
+  // Kalman gain
+  MatrixXd K = cholPz.solve(Pzx).transpose();
+  // measurement update
   x_ = x_ + K * dz;
   P_ = P_ - K * Pz * K.transpose();
+
+  // NIS computation
+  radar_total_++;  // radar measuremnt counter
+  // if NIS higher than threshold, count it
+  if (dz.transpose() * (cholPz.solve(dz)) > NIS_RADAR_) radar_nis_count_++;
+
+  // cout << "lz^2: " << dz.transpose() * (cholPz.solve(dz)) 
+  //      << " LDLT: " << dz.transpose() * (Pz.ldlt().solve(dz)) 
+  //      << " LLT: " << dz.transpose() * (Pz.llt().solve(dz)) 
+  //      << " inv: " << dz.transpose() * (Pz.inverse() * dz) << endl;
+
+  // cout << "radar NIS: " << lz.transpose() * lz 
+  //      << " radar_nis_count: " << radar_nis_count_ 
+  //      << " radar_total: " << radar_total_ << endl;
 
   // cout << "x_ " << endl << x_ << endl;
   // cout << "P_ " << endl << P_ << endl;

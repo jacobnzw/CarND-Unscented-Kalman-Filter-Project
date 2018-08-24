@@ -85,6 +85,15 @@ public:
   ///* Sigma point spreading parameter
   double lambda_;
 
+  // radar NIS p=0.05 threshold
+  const float NIS_RADAR_ = 7.81;
+  const float NIS_LIDAR_ = 5.99;
+  // counter for when radar NIS above threshold
+  unsigned int radar_nis_count_;
+  unsigned int lidar_nis_count_;
+  // counter of total radar/lidar measurements
+  unsigned int radar_total_;
+  unsigned int lidar_total_;
 
   /**
    * Constructor
