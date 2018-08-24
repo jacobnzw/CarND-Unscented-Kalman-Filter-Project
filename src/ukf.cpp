@@ -58,7 +58,8 @@ UKF::UKF() {
 
   // TODO: set these values meaningfully! Use NIS plots to verify.
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ =  3.5/2; // sqrt(0.0001); // 3;
+  // 3.5 is max bicycle acceleration according to: https://www.analyticcycling.com/DiffEqMotionFunctions_Page.html
+  std_a_ =  1.75;
   // Process noise standard deviation yaw acceleration in rad/s^2
   std_yawdd_ = M_PI/4; // 0.2;
 
