@@ -52,8 +52,9 @@ UKF::UKF() {
 
   // initial state vector
   x_ = VectorXd::Zero(n_x_);
+  x_ << 0.6, 0.6, 5.5, 0, 0;  // init from dataset
   // initial covariance matrix
-  P_ = MatrixXd::Identity(n_x_, n_x_);
+  P_ = 0.01*MatrixXd::Identity(n_x_, n_x_);  // low variance => I'm pretty sure by the init values
 
   // TODO: set these values meaningfully! Use NIS plots to verify.
   // Process noise standard deviation longitudinal acceleration in m/s^2
